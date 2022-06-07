@@ -7,17 +7,28 @@ resource "aws_lb" "front_end" {
   enable_deletion_protection = true
 }
 
-resource "aws_lb_target_group" "front_end" {
-  name     = "WebApps"
+resource "aws_lb_target_group" "blue" {
+  name     = "blue-tg-${random_pet.app.id}-lb"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
+
+  lifecycle {
+    create_before_destroy = false
+    ignore_changes        = [name]
+  }
 }
 
+resource "aws_lb_target_group" "green" {
+  name     = "green-tg-${random_pet.app.id}-lb"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
 
-resource "aws_autoscaling_attachment" "asg_attachment_bar" {
-  autoscaling_group_name = aws_autoscaling_group.web-app.id
-  alb_target_group_arn    = aws_lb_target_group.front_end.arn
+  lifecycle {
+    create_before_destroy = false
+    ignore_changes        = [name]
+  }
 }
 
 resource "aws_lb_listener" "front_end" {
@@ -27,7 +38,22 @@ resource "aws_lb_listener" "front_end" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.front_end.arn
+    forward {
+      target_group {
+        arn = aws_lb_target_group.blue.arn
+        weight = lookup(local.traffic_dist_map[var.traffic_distribution], "blue", 100)
+      }
+
+      target_group {
+        arn = aws_lb_target_group.green.arn
+        weight = lookup(local.traffic_dist_map[var.traffic_distribution], "green", 0)
+      }
+
+      stickiness {
+        enabled = false
+        duration = 1
+      }
+    }
   }
 }
 
@@ -52,6 +78,19 @@ resource "aws_subnet" "secondary" {
 
   tags = {
     Name = "Secondary"
+  }
+}
+
+resource "aws_security_group" "bastion" {
+  name        = "bastion"
+  description = "SSH Bastion"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -90,11 +129,11 @@ resource "aws_security_group" "internal_http" {
     security_groups = [aws_security_group.public_http.id]
   }
   ingress {
-    description = "SSH from internet"
+    description = "SSH from bastion"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.bastion.id]
   }
 
   egress {

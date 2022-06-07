@@ -2,7 +2,7 @@ terraform {
   # cloud {
   #   organization = "adam-inc"
   #   workspaces {
-  #     name = "Example-Workspace"
+  #     name = "web-app-prod"
   #   }
   # }
 
@@ -19,4 +19,17 @@ terraform {
 provider "aws" {
   profile = "default"
   region  = "us-west-2"
+}
+
+resource "aws_instance" "bastion" {
+  ami           = "ami-0b28dfc7adc325ef4"
+  instance_type = "t2.micro"
+  tags = {
+    Name = "bastion"
+  }
+}
+
+resource "random_pet" "app" {
+  length    = 2
+  separator = "-"
 }
